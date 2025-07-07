@@ -1,0 +1,15 @@
+composer.lock
+phpunit.xml
+composer.phar
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+vendor/
+.env
+.config.php
+.git/
+.cache
+logs/
+*.log
+.Identifier

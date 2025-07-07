@@ -1,0 +1,28 @@
+{
+  "name": "artisanfw/token-manager",
+  "description": "Create and redeem storable tokens in your application.",
+  "type": "library",
+  "authors": [
+    {
+      "name": "Airam Batista",
+      "email": "airamb@gmail.com"
+    }
+  ],
+  "repositories": [
+    {
+      "type": "vcs",
+      "url": "https://github.com/artisanfw/doctrine.git"
+    }
+  ],
+  "require": {
+    "php": ">=8.3",
+    "artisanfw/doctrine": "dev-main"
+  },
+  "autoload": {
+    "psr-4": {
+      "Artisan\\": "src/"
+    }
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
