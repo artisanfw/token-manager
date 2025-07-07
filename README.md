@@ -35,14 +35,16 @@ Before using the `TokenManager`, you must initialize it once (typically during a
 ```php
 use Artisan\Managers\TokenManager;
 
-TokenManager::load([
+$config = [
     'types' => ['email_validation', 'discount_code', 'pincode', ...],
     'default_code_length' => 16,
     'charset' => [
         'letters' => 'ABCDEFGHJKLMNPQRSTUVWXYZ',
         'numbers' => '23456789',
     ],
-]);
+];
+
+TokenManager::load($config);
 ```
 
 ## Create a token
