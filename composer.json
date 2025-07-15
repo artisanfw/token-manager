@@ -16,7 +16,7 @@
   ],
   "require": {
     "php": ">=8.3",
-    "artisanfw/doctrine": "^1.0"
+    "artisanfw/doctrine": "dev-entityManager_paths"
   },
   "autoload": {
     "psr-4": {
