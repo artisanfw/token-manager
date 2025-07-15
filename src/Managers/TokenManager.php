@@ -52,6 +52,9 @@ class TokenManager
     private static bool $isConfigured = false;
     private static ?self $instance = null;
 
+    /** @var string[] */
+    private static array $modelPaths = [];
+
 
     private function __construct() {
         if (!self::$isConfigured) {
@@ -98,6 +101,7 @@ class TokenManager
             ? (int) $config['default_code_length']
             : 32;
         self::$charset = $config['charset'] ?? self::COMMON_CHARSET;
+        self::$modelPaths = [realpath(__DIR__.'/../Models')];
 
         self::$isConfigured = true;
     }
@@ -227,7 +231,7 @@ class TokenManager
 
     public function removeToken(Token $token): int
     {
-        $em = Doctrine::i()->getEntityManager();
+        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
         $em->remove($token);
         $em->flush();
         return 1;
@@ -253,7 +257,7 @@ class TokenManager
         if (!isset($filters['type']) || !$this->validateType($filters['type'])) {
             throw new UnknownTypeException();
         }
-        $em = Doctrine::i()->getEntityManager();
+        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
         $token = $em->getRepository(Token::class)->findOneBy($filters);
 
         $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
@@ -319,7 +323,7 @@ class TokenManager
             }
 
             try {
-                $em = Doctrine::i()->getEntityManager();
+                $em = Doctrine::i()->getEntityManager(self::$modelPaths);
                 return $em->getClassMetadata($entityName)->getTableName();
             } catch (\Throwable $e) {
                 throw new UnknownEntityException("Class $entityName is not a valid Doctrine entity.");
@@ -336,7 +340,7 @@ class TokenManager
      */
     private function saveToken(Token $token): void
     {
-        $em = Doctrine::i()->getEntityManager();
+        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
         $em->persist($token);
         $em->flush();
     }
@@ -346,7 +350,7 @@ class TokenManager
         if (empty($filters)) {
             throw new InvalidArgumentException('Filters cannot be empty');
         }
-        $em = Doctrine::i()->getEntityManager();
+        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
         $qb = $em->createQueryBuilder();
         $qb->delete(Token::class, 't');
 
