@@ -14,7 +14,7 @@ class Token
     private int $id;
 
     #[ORM\Column(type: 'string', length: 32)]
-    private string $entityName;
+    private string $entity_name;
 
     #[ORM\Column(type: 'integer', options: ['unsigned' => true])]
     private int $entityId;
@@ -29,13 +29,13 @@ class Token
     private string $behavior;
 
     #[ORM\Column(type: 'smallint', nullable: true, options: ['unsigned' => true, 'default' => 1])]
-    private ?int $remainingUses = 1;
+    private ?int $remaining_uses = 1;
 
     #[ORM\Column(type: 'datetime_immutable')]
-    private \DateTimeImmutable $expirationAt;
+    private \DateTimeImmutable $expiration_at;
 
     #[ORM\Column(type: 'datetime_immutable')]
-    private \DateTimeImmutable $createdAt;
+    private \DateTimeImmutable $created_at;
 
     // Getters & Setters
 
@@ -46,23 +46,23 @@ class Token
 
     public function getEntityName(): string
     {
-        return $this->entityName;
+        return $this->entity_name;
     }
 
     public function setEntityName(string $entityName): self
     {
-        $this->entityName = $entityName;
+        $this->entity_name = $entityName;
         return $this;
     }
 
     public function getEntityId(): int
     {
-        return $this->entityId;
+        return $this->entity_id;
     }
 
     public function setEntityId(int $entityId): self
     {
-        $this->entityId = $entityId;
+        $this->entity_id = $entityId;
         return $this;
     }
 
@@ -101,34 +101,34 @@ class Token
 
     public function getRemainingUses(): ?int
     {
-        return $this->remainingUses;
+        return $this->remaining_uses;
     }
 
     public function setRemainingUses(?int $remainingUses): self
     {
-        $this->remainingUses = $remainingUses;
+        $this->remaining_uses = $remainingUses;
         return $this;
     }
 
     public function getExpirationAt(): \DateTimeImmutable
     {
-        return $this->expirationAt;
+        return $this->expiration_at;
     }
 
     public function setExpirationAt(\DateTimeImmutable $expirationAt): self
     {
-        $this->expirationAt = $expirationAt;
+        $this->expiration_at = $expirationAt;
         return $this;
     }
 
     public function getCreatedAt(): \DateTimeImmutable
     {
-        return $this->createdAt;
+        return $this->created_at;
     }
 
     public function setCreatedAt(\DateTimeImmutable $createdAt): self
     {
-        $this->createdAt = $createdAt;
+        $this->created_at = $createdAt;
         return $this;
     }
 }
