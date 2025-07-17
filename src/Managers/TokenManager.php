@@ -1,6 +1,6 @@
 <?php
 
-namespace Artisan\Managers;
+namespace Artisan\TokenManager\Managers;
 
 use Artisan\Services\Doctrine;
 use Artisan\TokenManager\Exceptions\UnknownBehaviorException;

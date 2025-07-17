@@ -20,7 +20,7 @@
   },
   "autoload": {
     "psr-4": {
-      "Artisan\\": "src/"
+      "Artisan\\TokenManager\\": "src/"
     }
   },
   "minimum-stability": "stable",
