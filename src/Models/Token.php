@@ -17,7 +17,7 @@ class Token
     private string $entity_name;
 
     #[ORM\Column(type: 'integer', options: ['unsigned' => true])]
-    private int $entityId;
+    private int $entity_id;
 
     #[ORM\Column(type: 'string', length: 32)]
     private string $code;
