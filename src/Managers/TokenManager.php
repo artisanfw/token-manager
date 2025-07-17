@@ -179,6 +179,7 @@ class TokenManager
         if (is_null($token) || $token->getBehavior() == self::BEHAVIOR_ADD) {
             $token = new Token();
             $token->setEntityName($entityName);
+            $token->setEntityId($entityId);
             $token->setType(strtolower($type));
             $token->setBehavior(trim(strtolower($behavior)));
             $token->setCode($this->generateCode($codeLength));
