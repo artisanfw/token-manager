@@ -6,12 +6,13 @@ use Artisan\Services\Doctrine;
 use Artisan\TokenManager\Exceptions\UnknownBehaviorException;
 use Artisan\TokenManager\Exceptions\UnknownEntityException;
 use Artisan\TokenManager\Exceptions\UnknownTypeException;
-use Artisan\TokenManager\Models\Token;
+use Artisan\TokenManager\Entities\Token;
 use DateInterval;
 use DateMalformedIntervalStringException;
 use DateMalformedStringException;
 use DateTimeImmutable;
 use DateTimeZone;
+use Doctrine\DBAL\Exception;
 use Doctrine\ORM\Exception\ORMException;
 use Doctrine\ORM\OptimisticLockException;
 use InvalidArgumentException;
@@ -51,9 +52,7 @@ class TokenManager
 
     private static bool $isConfigured = false;
     private static ?self $instance = null;
-
-    /** @var string[] */
-    private static array $modelPaths = [];
+    private static string $tableName = 'tokens';
 
 
     private function __construct() {
@@ -95,13 +94,14 @@ class TokenManager
      *    'default_code_length' => 32,
      * ];
      */
-    public static function load(array $config): void {
+    public static function load(array $config): void
+    {
         self::$types = array_map(fn($t) => strtolower(trim($t)), $config['types'] ?? []);
         self::$defCodeLength = isset($config['default_code_length']) && is_numeric($config['default_code_length'])
             ? (int) $config['default_code_length']
             : 32;
         self::$charset = $config['charset'] ?? self::COMMON_CHARSET;
-        self::$modelPaths = [realpath(__DIR__.'/../Models')];
+        self::$tableName = $config['table_name'] ?? 'tokens';
 
         self::$isConfigured = true;
     }
@@ -144,9 +144,9 @@ class TokenManager
      * @throws UnknownBehaviorException
      * @throws UnknownTypeException
      * @throws UnknownEntityException
-     * @throws ORMException
      * @throws DateMalformedStringException
      * @throws DateMalformedIntervalStringException
+     * @throws Exception
      */
     public function create(
         string $entityName,
@@ -230,12 +230,12 @@ class TokenManager
         return $token;
     }
 
+    /**
+     * @throws Exception
+     */
     public function removeToken(Token $token): int
     {
-        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
-        $em->remove($token);
-        $em->flush();
-        return 1;
+        return $this->remove(['id' => $token->getId()]);
     }
 
     public function removeAllOfType(string $entityName, int $entityId, string $type): int
@@ -251,22 +251,49 @@ class TokenManager
     /**
      * @throws UnknownTypeException
      * @throws DateMalformedStringException
-     * @throws ORMException
+     * @throws Exception
      */
     protected function getToken(array $filters): ?Token
     {
         if (!isset($filters['type']) || !$this->validateType($filters['type'])) {
             throw new UnknownTypeException();
         }
-        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
-        $token = $em->getRepository(Token::class)->findOneBy($filters);
+
+        $em = Doctrine::i()->getEntityManager();
+        $conn = $em->getConnection();
+        $qb = $conn->createQueryBuilder();
+
+        $qb->select('*')->from(self::$tableName);
+
+        foreach ($filters as $field => $value) {
+            $qb->andWhere("$field = :$field")
+                ->setParameter($field, $value);
+        }
+
+        $stmt = $qb->executeQuery();
+        $row = $stmt->fetchAssociative();
+
+        if (!$row) {
+            return null;
+        }
 
         $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
-        if ($token && $token->getExpirationAt() <= $now) {
-            $em->remove($token);
-            $em->flush();
-            $token = null;
+        $expAt = new \DateTimeImmutable($row['expiration_at'], new \DateTimeZone('UTC'));
+
+        if ($expAt <= $now) {
+            $this->remove(['id' => $row['id']]);
+            return null;
         }
+
+        $token = new Token();
+        $token->setId($row['id']);
+        $token->setEntityName($row['entity_name']);
+        $token->setCode($row['code']);
+        $token->setType($row['type']);
+        $token->setBehavior($row['behavior']);
+        $token->setRemainingUses($row['remaining_uses']);
+        $token->setExpirationAt($expAt);
+        $token->setCreatedAt(new \DateTimeImmutable($row['created_at'], new \DateTimeZone('UTC')));
 
         return $token;
     }
@@ -324,7 +351,7 @@ class TokenManager
             }
 
             try {
-                $em = Doctrine::i()->getEntityManager(self::$modelPaths);
+                $em = Doctrine::i()->getEntityManager();
                 return $em->getClassMetadata($entityName)->getTableName();
             } catch (\Throwable $e) {
                 throw new UnknownEntityException("Class $entityName is not a valid Doctrine entity.");
@@ -336,42 +363,77 @@ class TokenManager
 
 
     /**
-     * @throws OptimisticLockException
-     * @throws ORMException
+     * @throws Exception
      */
     private function saveToken(Token $token): void
     {
-        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
-        $em->persist($token);
-        $em->flush();
+        $em = Doctrine::i()->getEntityManager();
+        $conn = $em->getConnection();
+        $qb = $conn->createQueryBuilder();
+
+        if ($token->getId()) {
+            // UPDATE
+            $qb->update(self::$tableName)
+                ->set('code', ':code')
+                ->set('remaining_uses', ':remainingUses')
+                ->set('expiration_at', ':expirationAt')
+                ->where('id = :id')
+                ->setParameters([
+                    'code' => $token->getCode(),
+                    'remainingUses' => $token->getRemainingUses(),
+                    'expirationAt' => $token->getExpirationAt()->format('Y-m-d H:i:s'),
+                    'id' => $token->getId(),
+                ])
+                ->executeStatement();
+        } else {
+            // INSERT
+            $qb->insert(self::$tableName)
+                ->values([
+                    'entity_name' => ':entityName',
+                    'entity_id' => ':entityId',
+                    'code' => ':code',
+                    'type' => ':type',
+                    'behavior' => ':behavior',
+                    'remaining_uses' => ':remainingUses',
+                    'expiration_at' => ':expirationAt',
+                    'created_at' => ':createdAt',
+                ])
+                ->setParameters([
+                    'entityName' => $token->getEntityName(),
+                    'entityId' => $token->getEntityId(),
+                    'code' => $token->getCode(),
+                    'type' => $token->getType(),
+                    'behavior' => $token->getBehavior(),
+                    'remainingUses' => $token->getRemainingUses(),
+                    'expirationAt' => $token->getExpirationAt()->format('Y-m-d H:i:s'),
+                    'createdAt' => $token->getCreatedAt()->format('Y-m-d H:i:s'),
+                ])
+                ->executeStatement();
+
+            $token->setId($conn->lastInsertId());
+        }
     }
 
+    /**
+     * @throws Exception
+     */
     private function remove(array $filters): int
     {
         if (empty($filters)) {
             throw new InvalidArgumentException('Filters cannot be empty');
         }
-        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
-        $qb = $em->createQueryBuilder();
-        $qb->delete(Token::class, 't');
+
+        $em = Doctrine::i()->getEntityManager();
+        $conn = $em->getConnection();
+        $qb = $conn->createQueryBuilder();
+
+        $qb->delete(self::$tableName);
 
         foreach ($filters as $field => $value) {
-            $qb->andWhere("t.$field = :$field")
+            $qb->andWhere("$field = :$field")
                 ->setParameter($field, $value);
         }
 
-        $query = $qb->getQuery();
-        return $query->execute();
+        return $qb->executeStatement();
     }
-
-    //For testing purposes
-    public static function reset(): void
-    {
-        self::$isConfigured = false;
-        self::$instance = null;
-        self::$types = [];
-        self::$charset = [];
-        self::$defCodeLength = 32;
-    }
-
 }
