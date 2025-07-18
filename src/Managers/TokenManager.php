@@ -259,7 +259,7 @@ class TokenManager
             throw new UnknownTypeException();
         }
 
-        $em = Doctrine::i()->getEntityManager(self::$modelPaths);
+        $em = Doctrine::i()->getEntityManager();
         $conn = $em->getConnection();
         $qb = $conn->createQueryBuilder();
 
