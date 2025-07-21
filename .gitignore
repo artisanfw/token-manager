@@ -9,7 +9,8 @@ vendor/
 .env
 .config.php
 .git/
-.cache
+*.cache
+.cache/
 logs/
 *.log
 .Identifier
