@@ -8,7 +8,6 @@ use Artisan\TokenManager\Entities\Token;
 use Artisan\TokenManager\Repositories\IRepository;
 use Artisan\TokenManager\Exceptions\UnknownTypeException;
 use Artisan\TokenManager\Exceptions\UnknownBehaviorException;
-use ReflectionClass;
 
 class TokenManagerTest extends TestCase
 {
@@ -19,14 +18,42 @@ class TokenManagerTest extends TestCase
         $this->repositoryMock = $this->createMock(IRepository::class);
 
         TokenManager::load([
-            'types' => ['email_verification', 'discount'],
+            'types' => ['email_validation', 'discount'],
             'repository' => $this->repositoryMock,
             'table_name' => 'tokens',
+            'length' => 4
         ]);
+    }
+
+    public function testCreateTokenWithUnknownTypeThrowsException()
+    {
+        $this->expectException(UnknownTypeException::class);
+
+        TokenManager::i()->create(
+            'users',
+            1,
+            'invalid_type',
+            TokenManager::BEHAVIOR_ADD,
+            3600
+        );
+    }
+
+    public function testCreateTokenWithUnknownBehaviorThrowsException()
+    {
+        $this->expectException(UnknownBehaviorException::class);
+
+        TokenManager::i()->create(
+            'users',
+            1,
+            'discount',
+            'invalid_behavior',
+            3600
+        );
     }
 
     public function testCreateWithUniqueBehaviorReturnsSameTokenIfExists(): void
     {
+        $code = '1234';
         $entityName = 'users';
         $entityId = 42;
         $type = 'email_validation';
@@ -38,11 +65,10 @@ class TokenManagerTest extends TestCase
         $existingToken->setEntityId($entityId);
         $existingToken->setType($type);
         $existingToken->setBehavior($behavior);
-        $existingToken->setCode('EXISTING_CODE');
+        $existingToken->setCode($code);
         $existingToken->setCreatedAt(new \DateTimeImmutable('-10 minutes'));
         $existingToken->setExpirationAt(new \DateTimeImmutable('+50 minutes'));
 
-        // Simulamos que el token ya existe en el repositorio
         $this->repositoryMock
             ->method('normalizeEntityName')
             ->willReturn($entityName);
@@ -55,9 +81,8 @@ class TokenManagerTest extends TestCase
 
         $token = $manager->create($entityName, $entityId, $type, $behavior, $duration);
 
-        // Verificamos que se devuelve el token existente
         $this->assertSame($existingToken, $token);
-        $this->assertEquals('EXISTING_CODE', $token->getCode());
+        $this->assertEquals($code, $token->getCode());
     }
 
     public function testCreateWithUniqueBehaviorCreatesNewTokenIfNotExists(): void
@@ -94,181 +119,223 @@ class TokenManagerTest extends TestCase
         $this->assertNotEmpty($token->getCode());
     }
 
-//    public function testCreateTokenWithAddBehavior()
-//    {
-//        $token = new Token();
-//        $this->repositoryMock
-//            ->expects($this->once())
-//            ->method('find')
-//            ->willReturn(null);
-//
-//        $this->repositoryMock
-//            ->expects($this->once())
-//            ->method('save')
-//            ->with($this->callback(function ($t) use (&$token) {
-//                $token = $t;
-//                return $t instanceof Token;
-//            }));
-//
-//        $manager = TokenManager::i();
-//
-//        $result = $manager->create(
-//            'users',
-//            1,
-//            'email_verification',
-//            TokenManager::BEHAVIOR_ADD,
-//            3600,
-//            1,
-//            6
-//        );
-//
-//        $this->assertInstanceOf(Token::class, $result);
-//        $this->assertSame($token, $result);
-//        $this->assertEquals(6, strlen($result->getCode()));
-//    }
-//
-//    public function testCreateTokenWithUnknownTypeThrowsException()
-//    {
-//        $this->expectException(UnknownTypeException::class);
-//
-//        TokenManager::i()->create(
-//            'users',
-//            1,
-//            'invalid_type',
-//            TokenManager::BEHAVIOR_ADD,
-//            3600
-//        );
-//    }
-//
-//    public function testCreateTokenWithUnknownBehaviorThrowsException()
-//    {
-//        $this->expectException(UnknownBehaviorException::class);
-//
-//        TokenManager::i()->create(
-//            'users',
-//            1,
-//            'email_verification',
-//            'invalid_behavior',
-//            3600
-//        );
-//    }
-//
-//    public function testRedeemValidTokenReducesUsage()
-//    {
-//        $token = new Token();
-//        $token->setId(1);
-//        $token->setRemainingUses(2);
-//        $token->setCode('ABC123');
-//        $token->setType('email_verification');
-//        $token->setBehavior(TokenManager::BEHAVIOR_UNIQUE);
-//        $token->setCreatedAt(new \DateTimeImmutable());
-//        $token->setExpirationAt((new \DateTimeImmutable())->modify('+1 hour'));
-//
-//        $this->repositoryMock
-//            ->expects($this->once())
-//            ->method('find')
-//            ->with(['code' => 'ABC123', 'type' => 'email_verification'])
-//            ->willReturn($token);
-//
-//        $this->repositoryMock
-//            ->expects($this->once())
-//            ->method('save')
-//            ->with($this->callback(function (Token $t) {
-//                return $t->getRemainingUses() === 1;
-//            }));
-//
-//        $manager = TokenManager::i();
-//        $result = $manager->redeem('ABC123', 'email_verification');
-//
-//        $this->assertInstanceOf(Token::class, $result);
-//        $this->assertEquals(1, $result->getRemainingUses());
-//    }
-//
-//    public function testRedeemExpiredTokenReturnsNull()
-//    {
-//        $token = new Token();
-//        $token->setId(1);
-//        $token->setRemainingUses(1);
-//        $token->setCode('EXPIRED');
-//        $token->setType('email_verification');
-//        $token->setBehavior(TokenManager::BEHAVIOR_UNIQUE);
-//        $token->setCreatedAt(new \DateTimeImmutable('-2 hours'));
-//        $token->setExpirationAt(new \DateTimeImmutable('-1 hour'));
-//
-//        $this->repositoryMock
-//            ->method('find')
-//            ->willReturn($token);
-//
-//        $manager = TokenManager::i();
-//        $result = $manager->redeem('EXPIRED', 'email_verification');
-//
-//        $this->assertNull($result);
-//    }
-//
-//    public function testRedeemTokenWithNoRemainingUsesReturnsNull()
-//    {
-//        $token = new Token();
-//        $token->setId(1);
-//        $token->setRemainingUses(0);
-//        $token->setCode('USEDUP');
-//        $token->setType('email_verification');
-//        $token->setBehavior(TokenManager::BEHAVIOR_UNIQUE);
-//        $token->setCreatedAt(new \DateTimeImmutable());
-//        $token->setExpirationAt(new \DateTimeImmutable('+1 hour'));
-//
-//        $this->repositoryMock
-//            ->method('find')
-//            ->willReturn($token);
-//
-//        $manager = TokenManager::i();
-//        $result = $manager->redeem('USEDUP', 'email_verification');
-//
-//        $this->assertNull($result);
-//    }
-//
-//    public function testRedeemNonexistentTokenReturnsNull()
-//    {
-//        $this->repositoryMock
-//            ->method('find')
-//            ->willReturn(null);
-//
-//        $manager = TokenManager::i();
-//        $result = $manager->redeem('INVALID', 'email_verification');
-//
-//        $this->assertNull($result);
-//    }
-//
-//    public function testCreateTokenWithUniqueBehaviorReturnsExistingToken()
-//    {
-//        $existingToken = new Token();
-//        $existingToken->setId(5);
-//        $existingToken->setCode('UNIQUECODE');
-//        $existingToken->setType('email_verification');
-//        $existingToken->setBehavior(TokenManager::BEHAVIOR_UNIQUE);
-//        $existingToken->setExpirationAt(new \DateTimeImmutable('+1 hour'));
-//        $existingToken->setRemainingUses(3);
-//
-//        $this->repositoryMock
-//            ->method('find')
-//            ->willReturn($existingToken);
-//
-//        $this->repositoryMock
-//            ->expects($this->never())
-//            ->method('save');
-//
-//        $manager = TokenManager::i();
-//        $result = $manager->create(
-//            'users',
-//            1,
-//            'email_verification',
-//            TokenManager::BEHAVIOR_UNIQUE,
-//            3600
-//        );
-//
-//        $this->assertSame($existingToken, $result);
-//    }
+    public function testCreateWithAddBehaviorAlwaysCreatesNewToken(): void
+    {
+        $code = '1234';
+        $entityName = 'users';
+        $entityId = 123;
+        $type = 'email_validation';
+        $behavior = TokenManager::BEHAVIOR_ADD;
+        $duration = 3600;
+
+        $existingToken = new Token();
+        $existingToken->setEntityName($entityName);
+        $existingToken->setEntityId($entityId);
+        $existingToken->setType($type);
+        $existingToken->setBehavior($behavior);
+        $existingToken->setCode($code);
+        $existingToken->setCreatedAt(new \DateTimeImmutable('-10 minutes'));
+        $existingToken->setExpirationAt(new \DateTimeImmutable('+50 minutes'));
+
+        $this->repositoryMock
+            ->method('normalizeEntityName')
+            ->willReturn($entityName);
+
+        $this->repositoryMock
+            ->method('find')
+            ->willReturn($existingToken);
+
+        $this->repositoryMock
+            ->expects($this->once())
+            ->method('save')
+            ->with($this->callback(function (Token $t) use ($entityId, $type, $code) {
+                return $t->getEntityId() === $entityId &&
+                    $t->getType() === $type &&
+                    $t->getCode() !== $code;
+            }));
+
+        $manager = TokenManager::i();
+        $newToken = $manager->create($entityName, $entityId, $type, $behavior, $duration);
+
+        $this->assertInstanceOf(Token::class, $newToken);
+        $this->assertNotEquals($code, $newToken->getCode());
+    }
+
+    public function testCreateWithReplaceBehaviorUpdatesExistingToken(): void
+    {
+        $entityName = 'users';
+        $entityId = 10;
+        $type = 'email_validation';
+        $behavior = TokenManager::BEHAVIOR_REPLACE;
+        $duration = 3600;
+        $oldCode = '1234';
+
+        $token = new Token();
+        $token->setEntityName($entityName);
+        $token->setEntityId($entityId);
+        $token->setType($type);
+        $token->setBehavior($behavior);
+        $token->setCode($oldCode);
+        $token->setCreatedAt(new \DateTimeImmutable('-10 minutes'));
+        $token->setExpirationAt(new \DateTimeImmutable('+50 minutes'));
+
+        $this->repositoryMock
+            ->method('normalizeEntityName')
+            ->willReturn($entityName);
+
+        $this->repositoryMock
+            ->method('find')
+            ->willReturn($token);
+
+        $this->repositoryMock
+            ->expects($this->once())
+            ->method('save')
+            ->with($this->callback(function (Token $t) use ($oldCode) {
+                return $t->getCode() !== $oldCode;
+            }));
+
+        $manager = TokenManager::i();
+        $newToken = $manager->create($entityName, $entityId, $type, $behavior, $duration, 5);
+
+        $this->assertInstanceOf(Token::class, $newToken);
+        $this->assertNotEquals($oldCode, $newToken->getCode());
+        $this->assertEquals(5, $newToken->getRemainingUses());
+    }
+
+    public function testCreateWithRenewBehaviorExtendsExpirationAndUsage(): void
+    {
+        $entityName = 'users';
+        $entityId = 5;
+        $type = 'email_validation';
+        $behavior = TokenManager::BEHAVIOR_RENEW;
+        $duration = 7200;
+        $originalCode = '1234';
+
+        $token = new Token();
+        $token->setEntityName($entityName);
+        $token->setEntityId($entityId);
+        $token->setType($type);
+        $token->setBehavior($behavior);
+        $token->setCode($originalCode);
+        $token->setCreatedAt(new \DateTimeImmutable('-1 hour'));
+        $token->setExpirationAt(new \DateTimeImmutable('+1 hour'));
+
+        $this->repositoryMock
+            ->method('normalizeEntityName')
+            ->willReturn($entityName);
+
+        $this->repositoryMock
+            ->method('find')
+            ->willReturn($token);
+
+        $this->repositoryMock
+            ->expects($this->once())
+            ->method('save')
+            ->with($this->callback(function (Token $t) use ($originalCode) {
+                return $t->getCode() === $originalCode && $t->getRemainingUses() === 10;
+            }));
+
+        $manager = TokenManager::i();
+        $renewedToken = $manager->create($entityName, $entityId, $type, $behavior, $duration, 10);
+
+        $this->assertInstanceOf(Token::class, $renewedToken);
+        $this->assertEquals($originalCode, $renewedToken->getCode());
+        $this->assertEquals(10, $renewedToken->getRemainingUses());
+    }
 
 
+    public function testRedeemValidTokenReducesUsage()
+    {
+        $code = '1234';
+        $type = 'email_validation';
+        $behavior = TokenManager::BEHAVIOR_UNIQUE;
 
+        $token = new Token();
+        $token->setId(1);
+        $token->setRemainingUses(2);
+        $token->setCode($code);
+        $token->setType($type);
+        $token->setBehavior($behavior);
+        $token->setCreatedAt(new \DateTimeImmutable('-10 minutes'));
+        $token->setExpirationAt(new \DateTimeImmutable('+50 minutes'));
 
+        $this->repositoryMock
+            ->method('find')
+            ->willReturn($token);
+
+        $this->repositoryMock
+            ->expects($this->once())
+            ->method('save')
+            ->with($this->callback(function (Token $t) {
+                return $t->getRemainingUses() === 1;
+            }));
+
+        $manager = TokenManager::i();
+        $result = $manager->redeem($token->getCode(), $token->getType());
+
+        $this->assertInstanceOf(Token::class, $result);
+        $this->assertEquals(1, $result->getRemainingUses());
+    }
+//
+    public function testRedeemExpiredTokenReturnsNull()
+    {
+        $code = '1234';
+        $type = 'email_validation';
+        $behavior = TokenManager::BEHAVIOR_UNIQUE;
+
+        $token = new Token();
+        $token->setId(1);
+        $token->setRemainingUses(2);
+        $token->setCode($code);
+        $token->setType($type);
+        $token->setBehavior($behavior);
+        $token->setCreatedAt(new \DateTimeImmutable('-20 minutes'));
+        $token->setExpirationAt(new \DateTimeImmutable('-10 minutes'));
+
+        $this->repositoryMock
+            ->method('find')
+            ->willReturn($token);
+
+        $manager = TokenManager::i();
+        $result = $manager->redeem($token->getCode(), $token->getType());
+
+        $this->assertNull($result);
+    }
+
+    public function testRedeemTokenWithNoRemainingUsesReturnsNull()
+    {
+        $code = '1234';
+        $type = 'email_validation';
+        $behavior = TokenManager::BEHAVIOR_UNIQUE;
+
+        $token = new Token();
+        $token->setId(1);
+        $token->setRemainingUses(0);
+        $token->setCode($code);
+        $token->setType($type);
+        $token->setBehavior($behavior);
+        $token->setCreatedAt(new \DateTimeImmutable('-10 minutes'));
+        $token->setExpirationAt(new \DateTimeImmutable('+50 minutes'));
+
+        $this->repositoryMock
+            ->method('find')
+            ->willReturn($token);
+
+        $manager = TokenManager::i();
+        $result = $manager->redeem($token->getCode(), $token->getType());
+
+        $this->assertNull($result);
+    }
+
+    public function testRedeemNonexistentTokenReturnsNull()
+    {
+        $this->repositoryMock
+            ->method('find')
+            ->willReturn(null);
+
+        $manager = TokenManager::i();
+        $result = $manager->redeem('code', 'email_validation');
+
+        $this->assertNull($result);
+    }
 }
