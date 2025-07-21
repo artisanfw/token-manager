@@ -264,6 +264,7 @@ class TokenManager
         $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
         $token = self::$repository->find($filters);
+        if (!$token) return null;
 
         if ($token->getExpirationAt() <= $now) {
             self::$repository->delete($token);

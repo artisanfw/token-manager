@@ -43,6 +43,7 @@ $config = [
         'numbers' => '23456789',
     ],
     'table_name' => 'tokens',
+    'repository' => \Artisan\TokenManager\Repositories\DoctrineRepository,
 ];
 
 TokenManager::load($config);

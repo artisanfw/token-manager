@@ -20,9 +20,16 @@
   },
   "autoload": {
     "psr-4": {
-      "Artisan\\TokenManager\\": "src/"
+      "Artisan\\TokenManager\\": "src/",
+      "Tests\\": "tests/"
     }
   },
   "minimum-stability": "stable",
-  "prefer-stable": true
+  "prefer-stable": true,
+  "require-dev": {
+    "phpunit/phpunit": "^12.2"
+  },
+  "scripts": {
+    "test": "phpunit"
+  }
 }
