@@ -5,16 +5,16 @@ namespace Artisan\TokenManager\Managers;
 use Artisan\Services\Doctrine;
 use Artisan\TokenManager\Exceptions\UnknownBehaviorException;
 use Artisan\TokenManager\Exceptions\UnknownEntityException;
+use Artisan\TokenManager\Exceptions\TokenRepositoryException;
 use Artisan\TokenManager\Exceptions\UnknownTypeException;
 use Artisan\TokenManager\Entities\Token;
+use Artisan\TokenManager\Repositories\IRepository;
 use DateInterval;
 use DateMalformedIntervalStringException;
 use DateMalformedStringException;
 use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Exception;
-use Doctrine\ORM\Exception\ORMException;
-use Doctrine\ORM\OptimisticLockException;
 use InvalidArgumentException;
 use Throwable;
 
@@ -52,7 +52,7 @@ class TokenManager
 
     private static bool $isConfigured = false;
     private static ?self $instance = null;
-    private static string $tableName = 'tokens';
+    private static IRepository $repository;
 
 
     private function __construct() {
@@ -92,7 +92,9 @@ class TokenManager
      * $conf_example = [
      *    'types' => ['email_validation', 'discount_code', 'pin', ...],
      *    'default_code_length' => 32,
+     *    'repository' => \Artisan\TokenManager\Repositories\DoctrineRepository
      * ];
+     * @throws TokenRepositoryException
      */
     public static function load(array $config): void
     {
@@ -101,7 +103,24 @@ class TokenManager
             ? (int) $config['default_code_length']
             : 32;
         self::$charset = $config['charset'] ?? self::COMMON_CHARSET;
-        self::$tableName = $config['table_name'] ?? 'tokens';
+        $tablename = $config['table_name'] ?? 'tokens';
+
+        if (empty($config['repository'])) {
+            throw new TokenRepositoryException('Unknown token repository');
+        }
+        $repo = $config['repository'];
+
+        if (is_string($repo)) {
+            if (!class_exists($repo)) {
+                throw new \InvalidArgumentException("Repository class '$repo' does not exist.");
+            }
+            $repo = new $repo($tablename);
+        }
+        if (!$repo instanceof IRepository) {
+            throw new \InvalidArgumentException("Repository must implement ".IRepository::class);
+        }
+
+        self::$repository = $repo;
 
         self::$isConfigured = true;
     }
@@ -143,7 +162,6 @@ class TokenManager
      * @return Token
      * @throws UnknownBehaviorException
      * @throws UnknownTypeException
-     * @throws UnknownEntityException
      * @throws DateMalformedStringException
      * @throws DateMalformedIntervalStringException
      * @throws Exception
@@ -157,7 +175,7 @@ class TokenManager
         int $maxUses = 0,
         int $codeLength = 0
     ): Token {
-        $entityName = $this->normalizeEntityName($entityName);
+        $entityName = self::$repository->normalizeEntityName($entityName);
 
         if (!$this->validateType($type)) {
             throw new UnknownTypeException();
@@ -186,19 +204,19 @@ class TokenManager
             $token->setRemainingUses($maxUses);
             $token->setCreatedAt($createdAt);
             $token->setExpirationAt($expiration);
-            $this->saveToken($token);
+            self::$repository->save($token);
 
         }
         elseif ($token->getBehavior() == self::BEHAVIOR_REPLACE) {
             $token->setCode($this->generateCode($codeLength));
             $token->setRemainingUses($maxUses);
             $token->setExpirationAt($expiration);
-            $this->saveToken($token);
+            self::$repository->save($token);
         }
         elseif ($token->getBehavior() == self::BEHAVIOR_RENEW) {
             $token->setRemainingUses($maxUses);
             $token->setExpirationAt($expiration);
-            $this->saveToken($token);
+            self::$repository->save($token);
         }
         //if behavior is unique, simply return the same token
 
@@ -221,37 +239,21 @@ class TokenManager
             $uses = $token->getRemainingUses();
             if ($uses >= 1) {
                 $token->setRemainingUses(--$uses);
-                $this->saveToken($token);
+                self::$repository->save($token);
             } else {
-                $this->removeToken($token);
+                self::$repository->delete($token);
                 $token = null;
             }
         }
         return $token;
     }
 
-    /**
-     * @throws Exception
-     */
-    public function removeToken(Token $token): int
-    {
-        return $this->remove(['id' => $token->getId()]);
-    }
 
-    public function removeAllOfType(string $entityName, int $entityId, string $type): int
-    {
-        $filters = [
-            'entity_name' => $entityName,
-            'entity_id' => $entityId,
-            'type' => $type
-        ];
-        return $this->remove($filters);
-    }
+
 
     /**
      * @throws UnknownTypeException
      * @throws DateMalformedStringException
-     * @throws Exception
      */
     protected function getToken(array $filters): ?Token
     {
@@ -259,41 +261,14 @@ class TokenManager
             throw new UnknownTypeException();
         }
 
-        $em = Doctrine::i()->getEntityManager();
-        $conn = $em->getConnection();
-        $qb = $conn->createQueryBuilder();
-
-        $qb->select('*')->from(self::$tableName);
-
-        foreach ($filters as $field => $value) {
-            $qb->andWhere("$field = :$field")
-                ->setParameter($field, $value);
-        }
-
-        $stmt = $qb->executeQuery();
-        $row = $stmt->fetchAssociative();
-
-        if (!$row) {
-            return null;
-        }
-
         $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
-        $expAt = new \DateTimeImmutable($row['expiration_at'], new \DateTimeZone('UTC'));
 
-        if ($expAt <= $now) {
-            $this->remove(['id' => $row['id']]);
+        $token = self::$repository->find($filters);
+
+        if ($token->getExpirationAt() <= $now) {
+            self::$repository->delete($token);
             return null;
         }
-
-        $token = new Token();
-        $token->setId($row['id']);
-        $token->setEntityName($row['entity_name']);
-        $token->setCode($row['code']);
-        $token->setType($row['type']);
-        $token->setBehavior($row['behavior']);
-        $token->setRemainingUses($row['remaining_uses']);
-        $token->setExpirationAt($expAt);
-        $token->setCreatedAt(new \DateTimeImmutable($row['created_at'], new \DateTimeZone('UTC')));
 
         return $token;
     }
@@ -334,106 +309,5 @@ class TokenManager
     protected function validateBehavior(string $behavior): bool
     {
         return in_array($behavior, self::getBehaviors());
-    }
-
-    /**
-     * @throws UnknownEntityException
-     */
-    protected function normalizeEntityName(string $entityName): string
-    {
-        if (empty($entityName)) {
-            throw new UnknownEntityException();
-        }
-
-        if (str_contains($entityName, '\\')) {
-            if (!class_exists($entityName)) {
-                throw new UnknownEntityException("Class $entityName does not exist.");
-            }
-
-            try {
-                $em = Doctrine::i()->getEntityManager();
-                return $em->getClassMetadata($entityName)->getTableName();
-            } catch (\Throwable $e) {
-                throw new UnknownEntityException("Class $entityName is not a valid Doctrine entity.");
-            }
-        }
-
-        return $entityName;
-    }
-
-
-    /**
-     * @throws Exception
-     */
-    private function saveToken(Token $token): void
-    {
-        $em = Doctrine::i()->getEntityManager();
-        $conn = $em->getConnection();
-        $qb = $conn->createQueryBuilder();
-
-        if ($token->getId()) {
-            // UPDATE
-            $qb->update(self::$tableName)
-                ->set('code', ':code')
-                ->set('remaining_uses', ':remainingUses')
-                ->set('expiration_at', ':expirationAt')
-                ->where('id = :id')
-                ->setParameters([
-                    'code' => $token->getCode(),
-                    'remainingUses' => $token->getRemainingUses(),
-                    'expirationAt' => $token->getExpirationAt()->format('Y-m-d H:i:s'),
-                    'id' => $token->getId(),
-                ])
-                ->executeStatement();
-        } else {
-            // INSERT
-            $qb->insert(self::$tableName)
-                ->values([
-                    'entity_name' => ':entityName',
-                    'entity_id' => ':entityId',
-                    'code' => ':code',
-                    'type' => ':type',
-                    'behavior' => ':behavior',
-                    'remaining_uses' => ':remainingUses',
-                    'expiration_at' => ':expirationAt',
-                    'created_at' => ':createdAt',
-                ])
-                ->setParameters([
-                    'entityName' => $token->getEntityName(),
-                    'entityId' => $token->getEntityId(),
-                    'code' => $token->getCode(),
-                    'type' => $token->getType(),
-                    'behavior' => $token->getBehavior(),
-                    'remainingUses' => $token->getRemainingUses(),
-                    'expirationAt' => $token->getExpirationAt()->format('Y-m-d H:i:s'),
-                    'createdAt' => $token->getCreatedAt()->format('Y-m-d H:i:s'),
-                ])
-                ->executeStatement();
-
-            $token->setId($conn->lastInsertId());
-        }
-    }
-
-    /**
-     * @throws Exception
-     */
-    private function remove(array $filters): int
-    {
-        if (empty($filters)) {
-            throw new InvalidArgumentException('Filters cannot be empty');
-        }
-
-        $em = Doctrine::i()->getEntityManager();
-        $conn = $em->getConnection();
-        $qb = $conn->createQueryBuilder();
-
-        $qb->delete(self::$tableName);
-
-        foreach ($filters as $field => $value) {
-            $qb->andWhere("$field = :$field")
-                ->setParameter($field, $value);
-        }
-
-        return $qb->executeStatement();
     }
 }

@@ -42,6 +42,7 @@ $config = [
         'letters' => 'ABCDEFGHJKLMNPQRSTUVWXYZ',
         'numbers' => '23456789',
     ],
+    'table_name' => 'tokens',
 ];
 
 TokenManager::load($config);
